@@ -30,7 +30,7 @@ module Spliner
     # Creates a new Spliner::Spliner object to interpolate between
     # the supplied key points. 
     #
-    # The key points shoul be in increaing X order. When duplicate X 
+    # The key points should be in increasing X order. When duplicate X
     # values are encountered, the spline is split into two or more 
     # discontinuous sections.
     #
@@ -105,7 +105,7 @@ module Spliner
       @extrapolation_method = options[:emethod] || :linear
     end
 
-    # shortcut method to instanciate a Spliner::Spliner object and
+    # shortcut method to instantiate a Spliner::Spliner object and
     # return a series of interpolated values. Options are like 
     # Spliner::Spliner#initialize
     #
