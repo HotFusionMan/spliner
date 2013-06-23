@@ -9,6 +9,11 @@ module Spliner
   # curve is split into two non continuous parts where duplicate X values 
   # appear. Each such part is represented by a SplinerSection
   class SplinerSection
+    unless RUBY_VERSION >= "1.9.3"
+      # Needed for the LUP decomposition code that was copy-pasted in from Ruby 2.0.0-p195's Matrix.
+      include Matrix::ConversionHelper
+    end
+
     attr_reader :k, :x, :y
 
     def initialize(x, y)
@@ -46,10 +51,97 @@ module Spliner
         end
         b = vector_helper(tmp)
 
-        if RUBY_VERSION < "1.9.3"
-          @k = a.inv * b
-        else
+        if RUBY_VERSION >= "1.9.3"
           @k = a.lup_decomposition.solve b
+        else
+          # Although a.inverse * b actually passes the specs to within 2 * epsilon precision,
+          # LUP decomposition is a better algorithm in general, so copy-paste it here from Ruby 2.0.0's Matrix library.
+
+          @lu = a.to_a
+          @row_size = a.row_size
+          @col_size = a.column_size
+          @pivots = Array.new(@row_size)
+          @row_size.times do |i|
+            @pivots[i] = i
+          end
+          @pivot_sign = 1
+          lu_col_j = Array.new(@row_size)
+
+          # Outer loop.
+
+          @col_size.times do |j|
+
+            # Make a copy of the j-th column to localize references.
+
+            @row_size.times do |i|
+              lu_col_j[i] = @lu[i][j]
+            end
+
+            # Apply previous transformations.
+
+            @row_size.times do |i|
+              lu_row_i = @lu[i]
+
+              # Most of the time is spent in the following dot product.
+
+              kmax = [i, j].min
+              s = 0
+              kmax.times do |k|
+                s += lu_row_i[k]*lu_col_j[k]
+              end
+
+              lu_row_i[j] = lu_col_j[i] -= s
+            end
+
+            # Find pivot and exchange if necessary.
+
+            p = j
+            (j+1).upto(@row_size-1) do |i|
+              if (lu_col_j[i].abs > lu_col_j[p].abs)
+                p = i
+              end
+            end
+            if (p != j)
+              @col_size.times do |k|
+                t = @lu[p][k]; @lu[p][k] = @lu[j][k]; @lu[j][k] = t
+              end
+              k = @pivots[p]; @pivots[p] = @pivots[j]; @pivots[j] = k
+              @pivot_sign = -@pivot_sign
+            end
+
+            # Compute multipliers.
+
+            if (j < @row_size && @lu[j][j] != 0)
+              (j+1).upto(@row_size-1) do |i|
+                @lu[i][j] = @lu[i][j].quo(@lu[j][j])
+              end
+            end
+          end
+
+
+          # And now for the backsolve to get @k:
+          b = convert_to_array(b)
+          if (b.size != @row_size)
+            Matrix.Raise Matrix::ErrDimensionMismatch
+          end
+
+          # Copy right hand side with pivoting
+          m = b.values_at(*@pivots)
+
+          # Solve L*Y = P*b
+          @col_size.times do |k|
+            (k+1).upto(@col_size-1) do |i|
+              m[i] -= m[k]*@lu[i][k]
+            end
+          end
+          # Solve U*m = Y
+          (@col_size-1).downto(0) do |k|
+            m[k] = m[k].quo(@lu[k][k])
+            k.times do |i|
+              m[i] -= m[k]*@lu[i][k]
+            end
+          end
+          @k = Vector.elements(m, false)
         end
       else
         @k = Vector[0.0]
